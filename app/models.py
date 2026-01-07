@@ -41,7 +41,30 @@ class TargetAllocation(models.Model):
     target_percent = models.FloatField()
 
     class Meta:
-        unique_together = ('portfolio', 'stock')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['portfolio', 'stock'],
+                name='unique_portfolio_stock_allocation'
+            )
+        ]
 
     def __str__(self):
         return f"{self.stock.symbol} -> {self.target_percent * 100}% in {self.portfolio.name}"
+
+class StockPrice(models.Model):
+    stock = models.ForeignKey(Stock, on_delete=models.CASCADE, related_name="prices")
+    date = models.DateField()
+    price = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
+    volume = models.BigIntegerField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['stock', 'date'],
+                name='unique_stock_date'
+            )
+        ]
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"{self.stock.symbol} - {self.date}: ${self.price}"
