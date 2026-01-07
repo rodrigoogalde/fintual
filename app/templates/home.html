@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+
+{% block title %}Inicio - Portafolios{% endblock %}
+
+{% block content %}
+<h1>Sistema de Portafolios</h1>
+
+<div class="section">
+    <h2>Portafolios</h2>
+    {% if portfolios %}
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nombre</th>
+                    <th>Propietario</th>
+                    <th>Fecha de Creación</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for portfolio in portfolios %}
+                <tr>
+                    <td>{{ portfolio.id }}</td>
+                    <td>{{ portfolio.name }}</td>
+                    <td>{{ portfolio.owner.username }}</td>
+                    <td>{{ portfolio.created_at|date:"d/m/Y H:i" }}</td>
+                    <td>
+                        <a href="{% url 'portfolio_detail' portfolio.id %}">Ver detalles</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            No hay portafolios creados aún.
+        </div>
+    {% endif %}
+</div>
+
+<div class="section">
+    <h2>Acciones Disponibles</h2>
+    {% if stocks %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Símbolo</th>
+                    <th>Nombre</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for stock in stocks %}
+                <tr>
+                    <td><strong>{{ stock.symbol }}</strong></td>
+                    <td>{{ stock.name|default:"Sin nombre" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            No hay acciones registradas.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

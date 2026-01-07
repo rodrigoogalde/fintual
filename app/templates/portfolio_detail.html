@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ portfolio.name }} - Detalle{% endblock %}
+
+{% block content %}
+<a href="{% url 'home' %}" class="back-link">← Volver al inicio</a>
+
+<h1>{{ portfolio.name }}</h1>
+<p><strong>Propietario:</strong> {{ portfolio.owner.username }}</p>
+<p><strong>Fecha de creación:</strong> {{ portfolio.created_at|date:"d/m/Y H:i" }}</p>
+
+<div class="section">
+    <h2>Holdings (Participaciones Actuales)</h2>
+    {% if holdings %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Acción</th>
+                    <th>Nombre</th>
+                    <th>Cantidad de Acciones</th>
+                    <th>Precio Promedio</th>
+                    <th>Valor Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for holding in holdings %}
+                <tr>
+                    <td><strong>{{ holding.stock.symbol }}</strong></td>
+                    <td>{{ holding.stock.name|default:"—" }}</td>
+                    <td>{{ holding.shares }}</td>
+                    <td>${{ holding.average_price }}</td>
+                    <td>${{ holding.shares|floatformat:2|default:"0" }} × ${{ holding.average_price|floatformat:2 }} = ${% widthratio holding.shares 1 holding.average_price %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            Este portafolio no tiene holdings registrados.
+        </div>
+    {% endif %}
+</div>
+
+<div class="section">
+    <h2>Target Allocations (Asignaciones Objetivo)</h2>
+    {% if allocations %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Acción</th>
+                    <th>Nombre</th>
+                    <th>Porcentaje Objetivo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for allocation in allocations %}
+                <tr>
+                    <td><strong>{{ allocation.stock.symbol }}</strong></td>
+                    <td>{{ allocation.stock.name|default:"—" }}</td>
+                    <td>{{ allocation.target_percent|floatformat:2 }}%</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <div class="empty-state">
+            Este portafolio no tiene asignaciones objetivo definidas.
+        </div>
+    {% endif %}
+</div>
+{% endblock %}
