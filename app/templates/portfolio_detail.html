@@ -10,8 +10,42 @@
 <p><strong>Fecha de creación:</strong> {{ portfolio.created_at|date:"d/m/Y H:i" }}</p>
 
 <div class="section">
-    <h2>Holdings (Participaciones Actuales)</h2>
-    {% if holdings %}
+    <div class="balance-section">
+        <div class="balance-info">
+            <h3>Balance Disponible</h3>
+            <p class="balance-amount">${{ portfolio.cash_balance|floatformat:2 }}</p>
+        </div>
+        <div class="add-funds-form">
+            <h3>Agregar Fondos</h3>
+            <form method="post">
+                {% csrf_token %}
+                <div class="form-group">
+                    <input type="number" name="amount" step="0.01" min="0.01" placeholder="Monto" required class="form-input">
+                    <button type="submit" name="add_funds" class="btn-primary">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        Agregar Fondos
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    {% if messages %}
+        <div class="messages">
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags }}">
+                    {{ message }}
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>
+
+<div class="section">
+    <h2>Holdings</h2>
+    {% if holdings_data %}
         <table>
             <thead>
                 <tr>
@@ -20,19 +54,28 @@
                     <th>Cantidad de Acciones</th>
                     <th>Precio Promedio</th>
                     <th>Valor Total</th>
+                    <th>% Real</th>
                 </tr>
             </thead>
             <tbody>
-                {% for holding in holdings %}
+                {% for data in holdings_data %}
                 <tr>
-                    <td><strong>{{ holding.stock.symbol }}</strong></td>
-                    <td>{{ holding.stock.name|default:"—" }}</td>
-                    <td>{{ holding.shares }}</td>
-                    <td>${{ holding.average_price }}</td>
-                    <td>${{ holding.shares|floatformat:2|default:"0" }} × ${{ holding.average_price|floatformat:2 }} = ${% widthratio holding.shares 1 holding.average_price %}</td>
+                    <td><strong>{{ data.holding.stock.symbol }}</strong></td>
+                    <td>{{ data.holding.stock.name|default:"—" }}</td>
+                    <td>{{ data.holding.shares|floatformat:4 }}</td>
+                    <td>${{ data.holding.average_price|floatformat:2 }}</td>
+                    <td>${{ data.value|floatformat:2 }}</td>
+                    <td>{{ data.percentage|floatformat:2 }}%</td>
                 </tr>
                 {% endfor %}
             </tbody>
+            <tfoot>
+                <tr>
+                    <td colspan="4"><strong>Total del Portafolio:</strong></td>
+                    <td><strong>${{ total_portfolio_value|floatformat:2 }}</strong></td>
+                    <td><strong>100%</strong></td>
+                </tr>
+            </tfoot>
         </table>
     {% else %}
         <div class="empty-state">
@@ -42,26 +85,97 @@
 </div>
 
 <div class="section">
-    <h2>Target Allocations (Asignaciones Objetivo)</h2>
+    <h2>Target Allocations</h2>
     {% if allocations %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Acción</th>
-                    <th>Nombre</th>
-                    <th>Porcentaje Objetivo</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for allocation in allocations %}
-                <tr>
-                    <td><strong>{{ allocation.stock.symbol }}</strong></td>
-                    <td>{{ allocation.stock.name|default:"—" }}</td>
-                    <td>{{ allocation.target_percent|floatformat:2 }}%</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <form method="post" id="allocationsForm">
+            {% csrf_token %}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Acción</th>
+                        <th>Nombre</th>
+                        <th>Porcentaje Objetivo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for allocation in allocations %}
+                    <tr>
+                        <td><strong>{{ allocation.stock.symbol }}</strong></td>
+                        <td>{{ allocation.stock.name|default:"—" }}</td>
+                        <td>
+                            <div class="allocation-input-group">
+                                <input type="number" 
+                                       name="target_percent_{{ allocation.id }}" 
+                                       value="{{ allocation.target_percent|floatformat:2 }}"
+                                       step="0.01"
+                                       min="0"
+                                       max="100"
+                                       class="allocation-input"
+                                       oninput="calculateAllocationTotal()">
+                                <span>%</span>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr>
+                        <td colspan="2"><strong>Total:</strong></td>
+                        <td>
+                            <strong id="allocationTotal" class="allocation-total">0.00%</strong>
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+            
+            <div class="allocation-actions">
+                <button type="submit" name="update_allocations" class="btn-primary">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M13.5 3.5L6 11L2.5 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Guardar Allocations
+                </button>
+            </div>
+        </form>
+        
+        <script>
+        function calculateAllocationTotal() {
+            const inputs = document.querySelectorAll('.allocation-input');
+            let total = 0;
+            
+            inputs.forEach(input => {
+                const value = parseFloat(input.value) || 0;
+                total += value;
+            });
+            
+            const totalElement = document.getElementById('allocationTotal');
+            totalElement.textContent = total.toFixed(2) + '%';
+            
+            if (Math.abs(total - 100) < 0.00) {
+                totalElement.style.color = '#4CAF50';
+            } else {
+                totalElement.style.color = '#f44336';
+            }
+        }
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            calculateAllocationTotal();
+        });
+        
+        document.getElementById('allocationsForm').addEventListener('submit', function(e) {
+            const inputs = document.querySelectorAll('.allocation-input');
+            let total = 0;
+            
+            inputs.forEach(input => {
+                total += parseFloat(input.value) || 0;
+            });
+            
+            if (Math.abs(total - 100) > 0.01) {
+                e.preventDefault();
+                alert(`La suma de los porcentajes debe ser 100%. Suma actual: ${total.toFixed(2)}%`);
+            }
+        });
+        </script>
     {% else %}
         <div class="empty-state">
             Este portafolio no tiene asignaciones objetivo definidas.

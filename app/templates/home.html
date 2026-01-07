@@ -93,7 +93,12 @@
                         {% endif %}
                     </td>
                     <td>
-                        <button class="btn-add-to-portfolio" data-stock-id="{{ stock.id }}" data-stock-symbol="{{ stock.symbol }}">
+                        <button class="btn-add-to-portfolio" 
+                                data-stock-id="{{ stock.id }}" 
+                                data-stock-symbol="{{ stock.symbol }}"
+                                data-stock-name="{{ stock.name|default:'Sin nombre' }}"
+                                data-stock-price="{% if stock.latest_price %}{{ stock.latest_price.0.price }}{% else %}0{% endif %}"
+                                onclick="openBuyModal(this)">
                             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
                             </svg>
@@ -130,4 +135,190 @@
         </div>
     {% endif %}
 </div>
+
+<div id="buyModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Comprar Acción</h2>
+            <span class="modal-close" onclick="closeBuyModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <div id="modalError" class="modal-error" style="display: none;"></div>
+            <div id="modalSuccess" class="modal-success" style="display: none;"></div>
+            
+            <form id="buyStockForm">
+                {% csrf_token %}
+                <input type="hidden" id="stockId" name="stock_id">
+                
+                <div class="form-field">
+                    <label class="stock-info">
+                        <strong id="stockSymbol"></strong> - <span id="stockName"></span>
+                    </label>
+                    <p class="stock-price">Precio: $<span id="stockPrice">0.00</span></p>
+                </div>
+                
+                <div class="form-field">
+                    <label for="portfolioSelect">Seleccionar Portafolio:</label>
+                    <select id="portfolioSelect" name="portfolio_id" required onchange="updateBalance()">
+                        <option value="">-- Selecciona un portafolio --</option>
+                        {% for portfolio in portfolios %}
+                            <option value="{{ portfolio.id }}">{{ portfolio.name }} ({{ portfolio.owner.username }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div class="form-field">
+                    <label>Balance Disponible:</label>
+                    <p class="balance-display" id="portfolioBalance">Selecciona un portafolio</p>
+                </div>
+                
+                <div class="form-field">
+                    <label for="sharesInput">Cantidad de Acciones:</label>
+                    <input type="number" id="sharesInput" name="shares" min="0.01" step="0.01" required oninput="calculateTotal()">
+                </div>
+                
+                <div class="form-field">
+                    <label>Costo Total:</label>
+                    <p class="total-cost" id="totalCost">$0.00</p>
+                </div>
+                
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="closeBuyModal()">Cancelar</button>
+                    <button type="submit" class="btn-primary">Comprar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentStockPrice = 0;
+let currentBalance = 0;
+
+function openBuyModal(button) {
+    const stockId = button.dataset.stockId;
+    const stockSymbol = button.dataset.stockSymbol;
+    const stockName = button.dataset.stockName;
+    const stockPrice = parseFloat(button.dataset.stockPrice) || 0;
+    
+    if (stockPrice === 0) {
+        alert('Esta acción no tiene precio disponible');
+        return;
+    }
+    
+    currentStockPrice = stockPrice;
+    
+    document.getElementById('stockId').value = stockId;
+    document.getElementById('stockSymbol').textContent = stockSymbol;
+    document.getElementById('stockName').textContent = stockName;
+    document.getElementById('stockPrice').textContent = stockPrice.toFixed(2);
+    
+    document.getElementById('buyStockForm').reset();
+    document.getElementById('stockId').value = stockId;
+    document.getElementById('portfolioBalance').textContent = 'Selecciona un portafolio';
+    document.getElementById('totalCost').textContent = '$0.00';
+    document.getElementById('modalError').style.display = 'none';
+    document.getElementById('modalSuccess').style.display = 'none';
+    
+    document.getElementById('buyModal').style.display = 'block';
+}
+
+function closeBuyModal() {
+    document.getElementById('buyModal').style.display = 'none';
+}
+
+function updateBalance() {
+    const portfolioId = document.getElementById('portfolioSelect').value;
+    const balanceDisplay = document.getElementById('portfolioBalance');
+    
+    if (!portfolioId) {
+        balanceDisplay.textContent = 'Selecciona un portafolio';
+        currentBalance = 0;
+        return;
+    }
+    
+    fetch(`/api/portfolio/${portfolioId}/balance/`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                currentBalance = data.balance;
+                balanceDisplay.textContent = `$${data.balance.toFixed(2)}`;
+                balanceDisplay.style.color = '#4CAF50';
+            } else {
+                balanceDisplay.textContent = 'Error al obtener balance';
+                balanceDisplay.style.color = '#f44336';
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            balanceDisplay.textContent = 'Error de conexión';
+            balanceDisplay.style.color = '#f44336';
+        });
+}
+
+function calculateTotal() {
+    const shares = parseFloat(document.getElementById('sharesInput').value) || 0;
+    const total = shares * currentStockPrice;
+    document.getElementById('totalCost').textContent = `$${total.toFixed(2)}`;
+    
+    const totalCostElement = document.getElementById('totalCost');
+    if (currentBalance > 0 && total > currentBalance) {
+        totalCostElement.style.color = '#f44336';
+    } else {
+        totalCostElement.style.color = '#333';
+    }
+}
+
+document.getElementById('buyStockForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const errorDiv = document.getElementById('modalError');
+    const successDiv = document.getElementById('modalSuccess');
+    
+    errorDiv.style.display = 'none';
+    successDiv.style.display = 'none';
+    
+    fetch('/api/buy-stock/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            successDiv.textContent = data.message;
+            successDiv.style.display = 'block';
+            
+            currentBalance = data.new_balance;
+            document.getElementById('portfolioBalance').textContent = `$${data.new_balance.toFixed(2)}`;
+            
+            document.getElementById('sharesInput').value = '';
+            document.getElementById('totalCost').textContent = '$0.00';
+            
+            setTimeout(() => {
+                closeBuyModal();
+                location.reload();
+            }, 2000);
+        } else {
+            errorDiv.textContent = data.error;
+            errorDiv.style.display = 'block';
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        errorDiv.textContent = 'Error de conexión. Intenta nuevamente.';
+        errorDiv.style.display = 'block';
+    });
+});
+
+window.onclick = function(event) {
+    const modal = document.getElementById('buyModal');
+    if (event.target === modal) {
+        closeBuyModal();
+    }
+}
+</script>
 {% endblock %}

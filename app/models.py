@@ -6,6 +6,7 @@ User = get_user_model()
 class Portfolio(models.Model):
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="portfolios")
     name = models.CharField(max_length=200)
+    cash_balance = models.DecimalField(max_digits=20, decimal_places=2, default=0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
