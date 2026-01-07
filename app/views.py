@@ -3,7 +3,10 @@ from django.contrib import messages
 from django.core.paginator import Paginator
 from django.db.models import Prefetch
 from django.http import JsonResponse
+from django.db import transaction
 from decimal import Decimal, InvalidOperation
+from datetime import timedelta
+import random
 from .models import Portfolio, Stock, Holding, TargetAllocation, StockPrice
 
 def home(request):
@@ -200,3 +203,166 @@ def buy_stock(request):
             'success': False,
             'error': f'Error al procesar la compra: {str(e)}'
         }, status=500)
+
+def simulate_time(request):
+    if request.method != 'POST':
+        return redirect('home')
+    
+    try:
+        amount = int(request.POST.get('amount', 1))
+        unit = request.POST.get('unit', 'days')
+        
+        if amount <= 0 or amount > 365:
+            messages.error(request, 'La cantidad debe estar entre 1 y 365.')
+            return redirect('home')
+        
+        days_map = {
+            'days': 1,
+            'weeks': 7,
+            'months': 30
+        }
+        
+        if unit not in days_map:
+            messages.error(request, 'Unidad de tiempo inválida.')
+            return redirect('home')
+        
+        total_days = amount * days_map[unit]
+        
+        if total_days > 365:
+            messages.error(request, 'No se puede simular más de 365 días.')
+            return redirect('home')
+        
+        with transaction.atomic():
+            stocks_data = Stock.objects.values('id', 'symbol').all()
+            stock_ids = [s['id'] for s in stocks_data]
+            
+            if not stock_ids:
+                messages.warning(request, 'No hay acciones para simular.')
+                return redirect('home')
+            
+            latest_prices = {}
+            last_dates = {}
+            
+            for stock_id in stock_ids:
+                last_price_obj = StockPrice.objects.filter(
+                    stock_id=stock_id
+                ).order_by('-date').values('date', 'price', 'volume').first()
+                
+                if last_price_obj and last_price_obj['price']:
+                    latest_prices[stock_id] = float(last_price_obj['price'])
+                    last_dates[stock_id] = last_price_obj['date']
+            
+            if not latest_prices:
+                messages.warning(request, 'No hay precios históricos para simular.')
+                return redirect('home')
+            
+            new_prices = []
+            
+            for stock_id in latest_prices.keys():
+                current_price = latest_prices[stock_id]
+                start_date = last_dates[stock_id]
+                
+                for day in range(1, total_days + 1):
+                    change_percent = random.uniform(-0.03, 0.03)
+                    
+                    current_price = current_price * (1 + change_percent)
+                    
+                    new_date = start_date + timedelta(days=day)
+                    
+                    volume = random.randint(100000, 10000000)
+                    
+                    price_decimal = Decimal(str(round(current_price, 8)))
+                    
+                    new_prices.append(
+                        StockPrice(
+                            stock_id=stock_id,
+                            date=new_date,
+                            price=price_decimal,
+                            volume=volume
+                        )
+                    )
+            
+            if new_prices:
+                StockPrice.objects.bulk_create(
+                    new_prices,
+                    batch_size=5000,
+                    ignore_conflicts=True
+                )
+                
+                messages.success(
+                    request,
+                    f'Simulación completada: {total_days} día(s) simulado(s) para {len(latest_prices)} acción(es). '
+                    f'Se crearon {len(new_prices)} nuevos registros de precios.'
+                )
+            else:
+                messages.warning(request, 'No se generaron nuevos precios.')
+        
+        return redirect('home')
+        
+    except ValueError as e:
+        messages.error(request, f'Error en los valores ingresados: {str(e)}')
+        return redirect('home')
+    except Exception as e:
+        messages.error(request, f'Error al simular: {str(e)}')
+        return redirect('home')
+
+def stock_detail(request, stock_id):
+    stock = get_object_or_404(Stock, id=stock_id)
+    
+    from datetime import datetime, timedelta
+    
+    end_date = request.GET.get('end_date')
+    start_date = request.GET.get('start_date')
+    
+    if end_date:
+        try:
+            end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+        except ValueError:
+            end_date = None
+    
+    if start_date:
+        try:
+            start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+        except ValueError:
+            start_date = None
+    
+    if not end_date:
+        latest_price = stock.prices.order_by('-date').first()
+        end_date = latest_price.date if latest_price else datetime.now().date()
+    
+    if not start_date:
+        start_date = end_date - timedelta(days=30)
+    
+    prices = stock.prices.filter(
+        date__gte=start_date,
+        date__lte=end_date
+    ).order_by('date').values('date', 'price', 'volume')
+    
+    chart_data = {
+        'labels': [p['date'].strftime('%Y-%m-%d') for p in prices],
+        'prices': [float(p['price']) if p['price'] else 0 for p in prices],
+        'volumes': [p['volume'] if p['volume'] else 0 for p in prices]
+    }
+    
+    prices_list = [float(p['price']) for p in prices if p['price']]
+    stats = {}
+    if prices_list:
+        stats = {
+            'current_price': prices_list[-1] if prices_list else 0,
+            'max_price': max(prices_list),
+            'min_price': min(prices_list),
+            'avg_price': sum(prices_list) / len(prices_list),
+            'change': prices_list[-1] - prices_list[0] if len(prices_list) > 1 else 0,
+            'change_percent': ((prices_list[-1] - prices_list[0]) / prices_list[0] * 100) if len(prices_list) > 1 and prices_list[0] != 0 else 0
+        }
+    
+    import json
+    
+    return render(request, 'stock_detail.html', {
+        'stock': stock,
+        'chart_data_json': json.dumps(chart_data),
+        'stats': stats,
+        'start_date': start_date,
+        'end_date': end_date,
+        'data_points': len(prices)
+    })

@@ -52,7 +52,7 @@
                     <th>Acción</th>
                     <th>Nombre</th>
                     <th>Cantidad de Acciones</th>
-                    <th>Precio Promedio</th>
+                    <th>Precio Actual</th>
                     <th>Valor Total</th>
                     <th>% Real</th>
                 </tr>
@@ -63,7 +63,7 @@
                     <td><strong>{{ data.holding.stock.symbol }}</strong></td>
                     <td>{{ data.holding.stock.name|default:"—" }}</td>
                     <td>{{ data.holding.shares|floatformat:4 }}</td>
-                    <td>${{ data.holding.average_price|floatformat:2 }}</td>
+                    <td>${{ data.holding.stock.prices.first.price|floatformat:2 }}</td>
                     <td>${{ data.value|floatformat:2 }}</td>
                     <td>{{ data.percentage|floatformat:2 }}%</td>
                 </tr>
