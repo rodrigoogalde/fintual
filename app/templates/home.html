@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load humanize %}
 
 {% block title %}Inicio - Portafolios{% endblock %}
 
@@ -32,6 +33,26 @@
                 {% endfor %}
             </tbody>
         </table>
+        
+        {% if portfolios.has_other_pages %}
+        <div class="pagination">
+            <span class="step-links">
+                {% if portfolios.has_previous %}
+                    <a href="?portfolios_page=1{% if request.GET.stocks_page %}&stocks_page={{ request.GET.stocks_page }}{% endif %}">&laquo; primera</a>
+                    <a href="?portfolios_page={{ portfolios.previous_page_number }}{% if request.GET.stocks_page %}&stocks_page={{ request.GET.stocks_page }}{% endif %}">anterior</a>
+                {% endif %}
+
+                <span class="current">
+                    Página {{ portfolios.number }} de {{ portfolios.paginator.num_pages }}
+                </span>
+
+                {% if portfolios.has_next %}
+                    <a href="?portfolios_page={{ portfolios.next_page_number }}{% if request.GET.stocks_page %}&stocks_page={{ request.GET.stocks_page }}{% endif %}">siguiente</a>
+                    <a href="?portfolios_page={{ portfolios.paginator.num_pages }}{% if request.GET.stocks_page %}&stocks_page={{ request.GET.stocks_page }}{% endif %}">última &raquo;</a>
+                {% endif %}
+            </span>
+        </div>
+        {% endif %}
     {% else %}
         <div class="empty-state">
             No hay portafolios creados aún.
@@ -47,6 +68,9 @@
                 <tr>
                     <th>Símbolo</th>
                     <th>Nombre</th>
+                    <th>Precio</th>
+                    <th>Volumen</th>
+                    <th>Acciones</th>
                 </tr>
             </thead>
             <tbody>
@@ -54,10 +78,52 @@
                 <tr>
                     <td><strong>{{ stock.symbol }}</strong></td>
                     <td>{{ stock.name|default:"Sin nombre" }}</td>
+                    <td>
+                        {% if stock.latest_price %}
+                            ${{ stock.latest_price.0.price|floatformat:2 }}
+                        {% else %}
+                            <span class="no-data">N/A</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if stock.latest_price and stock.latest_price.0.volume %}
+                            {{ stock.latest_price.0.volume|intcomma }}
+                        {% else %}
+                            <span class="no-data">N/A</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <button class="btn-add-to-portfolio" data-stock-id="{{ stock.id }}" data-stock-symbol="{{ stock.symbol }}">
+                            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                            </svg>
+                            Comprar
+                        </button>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
+        
+        {% if stocks.has_other_pages %}
+        <div class="pagination">
+            <span class="step-links">
+                {% if stocks.has_previous %}
+                    <a href="?stocks_page=1{% if request.GET.portfolios_page %}&portfolios_page={{ request.GET.portfolios_page }}{% endif %}">&laquo; primera</a>
+                    <a href="?stocks_page={{ stocks.previous_page_number }}{% if request.GET.portfolios_page %}&portfolios_page={{ request.GET.portfolios_page }}{% endif %}">anterior</a>
+                {% endif %}
+
+                <span class="current">
+                    Página {{ stocks.number }} de {{ stocks.paginator.num_pages }}
+                </span>
+
+                {% if stocks.has_next %}
+                    <a href="?stocks_page={{ stocks.next_page_number }}{% if request.GET.portfolios_page %}&portfolios_page={{ request.GET.portfolios_page }}{% endif %}">siguiente</a>
+                    <a href="?stocks_page={{ stocks.paginator.num_pages }}{% if request.GET.portfolios_page %}&portfolios_page={{ request.GET.portfolios_page }}{% endif %}">última &raquo;</a>
+                {% endif %}
+            </span>
+        </div>
+        {% endif %}
     {% else %}
         <div class="empty-state">
             No hay acciones registradas.
