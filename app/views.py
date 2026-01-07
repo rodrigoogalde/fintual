@@ -80,18 +80,22 @@ def portfolio_detail(request, portfolio_id):
             messages.error(request, f'Error al actualizar allocations: {str(e)}')
             return redirect('portfolio_detail', portfolio_id=portfolio.id)
     
-    holdings = portfolio.holdings.select_related('stock').all()
+    holdings = portfolio.holdings.select_related('stock').prefetch_related('stock__prices').all()
     allocations = portfolio.allocations.select_related('stock').all()
     
     total_portfolio_value = Decimal('0')
     holdings_data = []
     
     for holding in holdings:
-        holding_value = holding.shares * holding.average_price
+        latest_price = holding.stock.prices.order_by('-date').first()
+        current_price = latest_price.price if latest_price and latest_price.price else Decimal('0')
+        
+        holding_value = holding.shares * current_price
         total_portfolio_value += holding_value
         holdings_data.append({
             'holding': holding,
-            'value': holding_value
+            'value': holding_value,
+            'current_price': current_price
         })
     
     for data in holdings_data:
