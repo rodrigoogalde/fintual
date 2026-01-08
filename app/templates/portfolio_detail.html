@@ -55,6 +55,7 @@
                     <th>Precio Actual</th>
                     <th>Valor Total</th>
                     <th>% Real</th>
+                    <th>Acciones</th>
                 </tr>
             </thead>
             <tbody>
@@ -66,22 +67,40 @@
                     <td>${{ data.current_price|floatformat:2 }}</td>
                     <td>${{ data.value|floatformat:2 }}</td>
                     <td>{{ data.percentage|floatformat:2 }}%</td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn-buy" onclick="openBuyModal('{{ data.holding.stock.id }}', '{{ data.holding.stock.symbol }}', '{{ data.current_price }}')">Comprar</button>
+                            <button class="btn-sell" onclick="openSellModal('{{ data.holding.stock.id }}', '{{ data.holding.stock.symbol }}', '{{ data.holding.shares }}', '{{ data.current_price }}')">Vender</button>
+                        </div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
             <tfoot>
                 <tr>
-                    <td colspan="4"><strong>Total del Portafolio:</strong></td>
+                    <td colspan="5"><strong>Total del Portafolio:</strong></td>
                     <td><strong>${{ total_portfolio_value|floatformat:2 }}</strong></td>
                     <td><strong>100%</strong></td>
                 </tr>
             </tfoot>
         </table>
+
+        {% if holdings_data and allocations %}
+        <div class="allocation-actions">
+            <button type="button" name="update_allocations" class="btn-primary" onclick="rebalancePortfolio()">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M13.5 3.5L6 11L2.5 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                Guardar Allocations
+            </button>
+        </div>
+        {% endif %}
     {% else %}
         <div class="empty-state">
             Este portafolio no tiene holdings registrados.
         </div>
     {% endif %}
+    
 </div>
 
 <div class="section">
@@ -182,4 +201,226 @@
         </div>
     {% endif %}
 </div>
+
+<div id="buyModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Comprar Acciones</h2>
+            <span class="close" onclick="closeBuyModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p><strong>Acción:</strong> <span id="buyStockSymbol"></span></p>
+            <p><strong>Precio Actual:</strong> $<span id="buyStockPrice"></span></p>
+            <p><strong>Balance Disponible:</strong> ${{ portfolio.cash_balance|floatformat:2 }}</p>
+            <form id="buyForm">
+                {% csrf_token %}
+                <input type="hidden" id="buyStockId" name="stock_id">
+                <input type="hidden" name="portfolio_id" value="{{ portfolio.id }}">
+                <div class="form-group">
+                    <label for="buyShares">Cantidad de Acciones:</label>
+                    <input type="number" id="buyShares" name="shares" step="0.0001" min="0.0001" required class="form-input">
+                </div>
+                <p><strong>Costo Total:</strong> $<span id="buyTotalCost">0.00</span></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="closeBuyModal()">Cancelar</button>
+                    <button type="submit" class="btn-primary">Confirmar Compra</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div id="sellModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Vender Acciones</h2>
+            <span class="close" onclick="closeSellModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p><strong>Acción:</strong> <span id="sellStockSymbol"></span></p>
+            <p><strong>Precio Actual:</strong> $<span id="sellStockPrice"></span></p>
+            <p><strong>Acciones Disponibles:</strong> <span id="sellAvailableShares"></span></p>
+            <form id="sellForm">
+                {% csrf_token %}
+                <input type="hidden" id="sellStockId" name="stock_id">
+                <input type="hidden" name="portfolio_id" value="{{ portfolio.id }}">
+                <div class="form-group">
+                    <label for="sellShares">Cantidad de Acciones:</label>
+                    <input type="number" id="sellShares" name="shares" step="0.0001" min="0.0001" required class="form-input">
+                </div>
+                <p><strong>Ingreso Total:</strong> $<span id="sellTotalIncome">0.00</span></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="closeSellModal()">Cancelar</button>
+                    <button type="submit" class="btn-primary">Confirmar Venta</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentBuyPrice = 0;
+let currentSellPrice = 0;
+let maxSharesAvailable = 0;
+
+function openBuyModal(stockId, stockSymbol, stockPrice) {
+    document.getElementById('buyStockId').value = stockId;
+    document.getElementById('buyStockSymbol').textContent = stockSymbol;
+    document.getElementById('buyStockPrice').textContent = parseFloat(stockPrice).toFixed(2);
+    currentBuyPrice = parseFloat(stockPrice);
+    document.getElementById('buyShares').value = '';
+    document.getElementById('buyTotalCost').textContent = '0.00';
+    document.getElementById('buyModal').style.display = 'block';
+}
+
+function closeBuyModal() {
+    document.getElementById('buyModal').style.display = 'none';
+}
+
+function openSellModal(stockId, stockSymbol, availableShares, stockPrice) {
+    document.getElementById('sellStockId').value = stockId;
+    document.getElementById('sellStockSymbol').textContent = stockSymbol;
+    document.getElementById('sellStockPrice').textContent = parseFloat(stockPrice).toFixed(2);
+    document.getElementById('sellAvailableShares').textContent = parseFloat(availableShares).toFixed(4);
+    currentSellPrice = parseFloat(stockPrice);
+    maxSharesAvailable = parseFloat(availableShares);
+    document.getElementById('sellShares').value = '';
+    document.getElementById('sellShares').max = maxSharesAvailable;
+    document.getElementById('sellTotalIncome').textContent = '0.00';
+    document.getElementById('sellModal').style.display = 'block';
+}
+
+function closeSellModal() {
+    document.getElementById('sellModal').style.display = 'none';
+}
+
+window.onclick = function(event) {
+    const buyModal = document.getElementById('buyModal');
+    const sellModal = document.getElementById('sellModal');
+    if (event.target == buyModal) {
+        closeBuyModal();
+    }
+    if (event.target == sellModal) {
+        closeSellModal();
+    }
+}
+
+document.getElementById('buyShares').addEventListener('input', function() {
+    const shares = parseFloat(this.value) || 0;
+    const totalCost = shares * currentBuyPrice;
+    document.getElementById('buyTotalCost').textContent = totalCost.toFixed(2);
+});
+
+document.getElementById('sellShares').addEventListener('input', function() {
+    const shares = parseFloat(this.value) || 0;
+    const totalIncome = shares * currentSellPrice;
+    document.getElementById('sellTotalIncome').textContent = totalIncome.toFixed(2);
+});
+
+document.getElementById('buyForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const shares = parseFloat(formData.get('shares'));
+    const totalCost = shares * currentBuyPrice;
+    const balance = {{ portfolio.cash_balance }};
+    
+    if (totalCost > balance) {
+        alert(`Balance insuficiente. Necesitas $${totalCost.toFixed(2)} pero solo tienes $${balance.toFixed(2)}`);
+        return;
+    }
+    
+    fetch('{% url "buy_stock" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('Error al procesar la compra: ' + error);
+    });
+});
+
+document.getElementById('sellForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(this);
+    const shares = parseFloat(formData.get('shares'));
+    
+    if (shares > maxSharesAvailable) {
+        alert(`No tienes suficientes acciones. Máximo disponible: ${maxSharesAvailable.toFixed(4)}`);
+        return;
+    }
+    
+    fetch('{% url "sell_stock" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert(data.message);
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('Error al procesar la venta: ' + error);
+    });
+});
+
+function rebalancePortfolio() {
+    // if (!confirm('¿Estás seguro de que deseas rebalancear el portafolio según los Target Allocations?')) {
+    //     return;
+    // }
+    
+    const formData = new FormData();
+    formData.append('portfolio_id', '{{ portfolio.id }}');
+    formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+    
+    fetch('{% url "rebalance_portfolio" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            let message = 'Rebalanceo exitoso!\n\n';
+            if (data.operations && data.operations.length > 0) {
+                message += 'Operaciones realizadas:\n';
+                data.operations.forEach(op => {
+                    message += `- ${op}\n`;
+                });
+            }
+            if (data.new_balance !== undefined) {
+                message += `\nNuevo balance: $${parseFloat(data.new_balance).toFixed(2)}`;
+            }
+            alert(message);
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('Error al procesar el rebalanceo: ' + error);
+    });
+}
+</script>
 {% endblock %}
