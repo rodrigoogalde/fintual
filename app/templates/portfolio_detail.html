@@ -20,7 +20,7 @@
             <form method="post">
                 {% csrf_token %}
                 <div class="form-group">
-                    <input type="number" name="amount" step="0.01" min="0.01" placeholder="Monto" required class="form-input">
+                    <input type="number" name="amount" step="any" min="0.01" placeholder="Monto" required class="form-input">
                     <button type="submit" name="add_funds" class="btn-primary">
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
@@ -88,10 +88,7 @@
         {% if holdings_data and allocations %}
         <div class="allocation-actions">
             <button type="button" name="update_allocations" class="btn-primary" onclick="rebalancePortfolio()">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M13.5 3.5L6 11L2.5 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                Guardar Allocations
+                Rebalancear portafolio
             </button>
         </div>
         {% endif %}
@@ -126,7 +123,7 @@
                                 <input type="number" 
                                        name="target_percent_{{ allocation.id }}" 
                                        value="{{ allocation.target_percent|floatformat:2 }}"
-                                       step="0.01"
+                                       step="any"
                                        min="0"
                                        max="100"
                                        class="allocation-input"
@@ -218,7 +215,7 @@
                 <input type="hidden" name="portfolio_id" value="{{ portfolio.id }}">
                 <div class="form-group">
                     <label for="buyShares">Cantidad de Acciones:</label>
-                    <input type="number" id="buyShares" name="shares" step="0.0001" min="0.0001" required class="form-input">
+                    <input type="number" id="buyShares" name="shares" step="any" min="0.0001" required class="form-input">
                 </div>
                 <p><strong>Costo Total:</strong> $<span id="buyTotalCost">0.00</span></p>
                 <div class="modal-actions">
@@ -246,7 +243,7 @@
                 <input type="hidden" name="portfolio_id" value="{{ portfolio.id }}">
                 <div class="form-group">
                     <label for="sellShares">Cantidad de Acciones:</label>
-                    <input type="number" id="sellShares" name="shares" step="0.0001" min="0.0001" required class="form-input">
+                    <input type="number" id="sellShares" name="shares" step="any" min="0.0001" required class="form-input">
                 </div>
                 <p><strong>Ingreso Total:</strong> $<span id="sellTotalIncome">0.00</span></p>
                 <div class="modal-actions">
@@ -254,6 +251,31 @@
                     <button type="submit" class="btn-primary">Confirmar Venta</button>
                 </div>
             </form>
+        </div>
+    </div>
+</div>
+
+<div id="rebalanceModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Resultado del Rebalanceo</h2>
+            <span class="close" onclick="closeRebalanceModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Acción</th>
+                        <th>Acciones a Comprar/Vender</th>
+                    </tr>
+                </thead>
+                <tbody id="rebalanceTableBody">
+                </tbody>
+            </table>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" onclick="closeRebalanceModal()">Cancelar</button>
+                <button type="button" class="btn-primary" onclick="confirmRebalance()">Confirmar</button>
+            </div>
         </div>
     </div>
 </div>
@@ -297,11 +319,15 @@ function closeSellModal() {
 window.onclick = function(event) {
     const buyModal = document.getElementById('buyModal');
     const sellModal = document.getElementById('sellModal');
+    const rebalanceModal = document.getElementById('rebalanceModal');
     if (event.target == buyModal) {
         closeBuyModal();
     }
     if (event.target == sellModal) {
         closeSellModal();
+    }
+    if (event.target == rebalanceModal) {
+        closeRebalanceModal();
     }
 }
 
@@ -323,7 +349,7 @@ document.getElementById('buyForm').addEventListener('submit', function(e) {
     const formData = new FormData(this);
     const shares = parseFloat(formData.get('shares'));
     const totalCost = shares * currentBuyPrice;
-    const balance = {{ portfolio.cash_balance }};
+    const balance = parseFloat('{{ portfolio.cash_balance|floatformat:2 }}');
     
     if (totalCost > balance) {
         alert(`Balance insuficiente. Necesitas $${totalCost.toFixed(2)} pero solo tienes $${balance.toFixed(2)}`);
@@ -384,10 +410,6 @@ document.getElementById('sellForm').addEventListener('submit', function(e) {
 });
 
 function rebalancePortfolio() {
-    // if (!confirm('¿Estás seguro de que deseas rebalancear el portafolio según los Target Allocations?')) {
-    //     return;
-    // }
-    
     const formData = new FormData();
     formData.append('portfolio_id', '{{ portfolio.id }}');
     formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
@@ -402,24 +424,69 @@ function rebalancePortfolio() {
     .then(response => response.json())
     .then(data => {
         if (data.success) {
-            let message = 'Rebalanceo exitoso!\n\n';
-            if (data.operations && data.operations.length > 0) {
-                message += 'Operaciones realizadas:\n';
-                data.operations.forEach(op => {
-                    message += `- ${op}\n`;
-                });
-            }
-            if (data.new_balance !== undefined) {
-                message += `\nNuevo balance: $${parseFloat(data.new_balance).toFixed(2)}`;
-            }
-            alert(message);
-            location.reload();
+            openRebalanceModal(data.data);
         } else {
             alert('Error: ' + data.error);
         }
     })
     .catch(error => {
         alert('Error al procesar el rebalanceo: ' + error);
+    });
+}
+
+function openRebalanceModal(data) {
+    const tableBody = document.getElementById('rebalanceTableBody');
+    tableBody.innerHTML = '';
+    
+    if (data.holdings && data.holdings.length > 0) {
+        data.holdings.forEach(holding => {
+            const row = document.createElement('tr');
+            const shares = parseFloat(holding.stocks_to_buy_sell);
+            const action = shares > 0 ? 'Comprar' : 'Vender';
+            const color = shares > 0 ? '#4CAF50' : '#f44336';
+            
+            row.innerHTML = `
+                <td><strong>${holding.stock_symbol}</strong></td>
+                <td style="color: ${color}">
+                    ${action} ${Math.abs(shares).toFixed(4)} acciones
+                </td>
+            `;
+            tableBody.appendChild(row);
+        });
+    }
+    
+    document.getElementById('rebalanceModal').style.display = 'block';
+}
+
+function closeRebalanceModal() {
+    document.getElementById('rebalanceModal').style.display = 'none';
+}
+
+function confirmRebalance() {
+    const formData = new FormData();
+    formData.append('portfolio_id', '{{ portfolio.id }}');
+    formData.append('confirm', 'true');
+    formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+    
+    fetch('{% url "rebalance_portfolio" %}', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            closeRebalanceModal();
+            alert('Rebalanceo completado exitosamente!');
+            location.reload();
+        } else {
+            alert('Error: ' + data.error);
+        }
+    })
+    .catch(error => {
+        alert('Error al confirmar el rebalanceo: ' + error);
     });
 }
 </script>
